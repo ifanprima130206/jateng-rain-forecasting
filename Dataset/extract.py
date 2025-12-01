@@ -9,8 +9,8 @@ def clean_num(x):
     x = x.strip()
     if x in ["", "-", "."]:
         return 0.0
-    x = x.replace(".", "").replace(",", ".")
-    x = re.sub(r"[^\d\.]", "", x)
+    x = x.replace(",", ".")
+    x = re.sub(r"[^\d\.]", "", x)  
     try:
         return float(x)
     except:
