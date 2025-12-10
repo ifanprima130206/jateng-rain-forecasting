@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-models_path = os.path.join(current_dir, 'saved_models')
+models_path = os.path.join(current_dir, 'modelling/saved_models')
 
 model = joblib.load(os.path.join(models_path, 'model_rf.pkl'))
 encoder = joblib.load(os.path.join(models_path, 'encoder_kabupaten.pkl'))
@@ -25,8 +25,7 @@ def predict_hujan(tanggal_str, kabupaten):
 
     fitur_lain = pd.DataFrame([{
         "Bulan": bulan,
-        "Tanggal": tanggal_hari,
-        "Hujan_Kemarin": 0.0
+        "Tanggal": tanggal_hari
     }])
 
     X_new = pd.concat([fitur_lain, df_kab], axis=1)
@@ -37,9 +36,11 @@ def predict_hujan(tanggal_str, kabupaten):
 
 if __name__ == "__main__":
     print("=== Prediksi Hujan Berdasarkan Tanggal & Kabupaten ===")
-    tanggal = input("Masukkan tanggal (YYYY-MM-DD atau DD-MM-YYYY): ")
+    tanggal = input("Masukkan tanggal (YYYY-MM-DD): ")
     kab = input("Masukkan nama kabupaten: ")
+
     hasil = predict_hujan(tanggal, kab)
+    
     print("-" * 50)
     print(f"Prediksi {tanggal} di {kab}: {hasil}")
     print("-" * 50)

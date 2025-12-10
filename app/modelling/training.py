@@ -23,15 +23,13 @@ def train_model():
 
     df = pd.read_csv(data_file)
     df = df.dropna(subset=['Curah_Hujan', 'Kabupaten'])
-    df['Hujan_Kemarin'] = df['Curah_Hujan'].shift(1)
-    df = df.dropna()
 
     df_major = df[df['Label'] == 0]
     df_minor = df[df['Label'] == 1]
     df_minor_up = resample(df_minor, replace=True, n_samples=len(df_major), random_state=42)
     df_bal = pd.concat([df_major, df_minor_up])
 
-    fitur = df_bal[['Bulan', 'Tanggal', 'Kabupaten', 'Hujan_Kemarin']]
+    fitur = df_bal[['Bulan', 'Tanggal', 'Kabupaten']]
     y = df_bal['Label']
 
     encoder = OneHotEncoder(handle_unknown='ignore')
@@ -40,8 +38,7 @@ def train_model():
 
     df_final = pd.DataFrame({
         "Bulan": fitur["Bulan"].values,
-        "Tanggal": fitur["Tanggal"].values,
-        "Hujan_Kemarin": fitur["Hujan_Kemarin"].values
+        "Tanggal": fitur["Tanggal"].values
     })
 
     df_ohe = pd.DataFrame(kab_encoded, columns=kab_cols)
