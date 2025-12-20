@@ -4,265 +4,237 @@ import numpy as np
 import joblib
 import os
 from datetime import datetime, timedelta
+import plotly.express as px
 
-st.set_page_config(
-    page_title="Jateng Rain Forecast",
-    page_icon="🌧️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Configuration
+st.set_page_config(page_title="Jateng Rain Forecast", page_icon="🌧️", layout="wide")
 
-st.markdown("""
-<style>
-    .stApp {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        color: white;
-    }
-    .css-1d391kg {
-        background-color: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 15px;
-        padding: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .stButton>button {
-        background: linear-gradient(90deg, #00C9FF 0%, #92FE9D 100%);
-        color: #1a1a1a;
-        font-weight: bold;
-        border: none;
-        border-radius: 25px;
-        padding: 10px 25px;
-        transition: all 0.3s ease;
-    }
-    .stButton>button:hover {
-        transform: scale(1.05);
-        box-shadow: 0 5px 15px rgba(0, 201, 255, 0.4);
-    }
-    h1, h2, h3 {
-        font-family: 'Segoe UI', sans-serif;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-    }
-    .metric-card {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 15px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-</style>
-""", unsafe_allow_html=True)
+# Constants & Paths
+MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app', 'modelling', 'saved_models')
+DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Dataset', 'processed', 'data_training_gabungan.csv')
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODELS_PATH = os.path.join(CURRENT_DIR, 'app', 'modelling', 'saved_models')
-DATA_PATH = os.path.join(CURRENT_DIR, 'Dataset', 'processed', 'data_training_gabungan.csv')
-
+# Load Data & Models
 @st.cache_resource
 def load_resources():
     try:
         model = joblib.load(os.path.join(MODELS_PATH, 'model_rf.pkl'))
-        encoder_data = joblib.load(os.path.join(MODELS_PATH, 'encoder_kabupaten.pkl'))
-        
+        encoder = joblib.load(os.path.join(MODELS_PATH, 'encoder_kabupaten.pkl'))
         df = pd.read_csv(DATA_PATH)
         df['Date'] = pd.to_datetime(df['Date'])
-        df = df.sort_values('Date')
-        
-        return model, encoder_data, df
+        if 'Curah Hujan' in df.columns: df.rename(columns={'Curah Hujan': 'Curah_Hujan'}, inplace=True)
+        return model, encoder, df.sort_values('Date')
     except Exception as e:
         return None, None, None
 
 model, encoder_data, df_data = load_resources()
 
+# Helper Functions
 def get_historical_features(kabupaten, date, df):
-    df_kab = df[df['Kabupaten'] == kabupaten].copy()
-    
+    df_kab = df[df['Kabupaten'] == kabupaten]
     target_date = pd.to_datetime(date)
     
-    max_date = df_kab['Date'].max()
-    
-    features = {}
-    lags = [1, 3, 7, 14, 30]
-    
-    if target_date <= max_date:
-        loc = df_kab[df_kab['Date'] == target_date]
-        if not loc.empty:
-            curr_idx = loc.index[0]
-            
-            past_30 = df_kab[df_kab['Date'] < target_date].tail(30)
-            
-            rain_vals = past_30['Curah_Hujan'].values
-            
-            features['rain_prev_1'] = rain_vals[-1] if len(rain_vals) >= 1 else 0
-            features['rain_prev_3'] = rain_vals[-3:].mean() if len(rain_vals) >= 1 else 0
-            features['rain_prev_7'] = rain_vals[-7:].mean() if len(rain_vals) >= 1 else 0
-            features['rain_prev_14'] = rain_vals[-14:].sum() if len(rain_vals) >= 1 else 0
-            features['rain_prev_30'] = rain_vals[-30:].sum() if len(rain_vals) >= 1 else 0
-            
-        else:
-             features = _get_average_features(df_kab, target_date.month)
-    else:
-        features = _get_average_features(df_kab, target_date.month)
+    if target_date > df_kab['Date'].max():
+        return _get_average_features(df_kab, target_date.month)
         
-    return features
-
-def _get_average_features(df_kab, month):
-    df_month = df_kab[df_kab['Bulan'] == month]
+    loc = df_kab[df_kab['Date'] == target_date]
+    if loc.empty: return _get_average_features(df_kab, target_date.month)
     
-    if df_month.empty:
-        return {
-            'rain_prev_1': 0, 'rain_prev_3': 0, 'rain_prev_7': 0,
-            'rain_prev_14': 0, 'rain_prev_30': 0
-        }
+    rain_vals = df_kab[df_kab['Date'] < target_date].tail(30)['Curah_Hujan'].values
+    if len(rain_vals) < 1: return _get_average_features(df_kab, target_date.month)
 
-    avg_rain = df_month['Curah_Hujan'].mean()
-    
-    if pd.isna(avg_rain):
-        avg_rain = 0
-        
     return {
-        'rain_prev_1': avg_rain,
-        'rain_prev_3': avg_rain,
-        'rain_prev_7': avg_rain,
-        'rain_prev_14': avg_rain * 14,
-        'rain_prev_30': avg_rain * 30
+        'rain_prev_1': rain_vals[-1],
+        'rain_prev_3': rain_vals[-3:].mean(),
+        'rain_prev_7': rain_vals[-7:].mean(),
+        'rain_prev_14': rain_vals[-14:].sum(),
+        'rain_prev_30': rain_vals[-30:].sum()
     }
 
-col1, col2 = st.columns([1, 2])
+def _get_average_features(df_kab, month):
+    avg_rain = df_kab[df_kab['Bulan'] == month]['Curah_Hujan'].mean()
+    avg_rain = 0 if pd.isna(avg_rain) else avg_rain
+    return {
+        'rain_prev_1': avg_rain, 'rain_prev_3': avg_rain, 'rain_prev_7': avg_rain,
+        'rain_prev_14': avg_rain * 14, 'rain_prev_30': avg_rain * 30
+    }
 
-with col1:
-    st.image("https://cdn-icons-png.flaticon.com/512/414/414974.png", width=100)
-    st.title("Jateng Rain Forecast")
-    st.markdown("Prediksi Curah Hujan Harian berbasis *Random Forest*.")
+# UI & Navigation
+st.sidebar.title("Navigasi")
+page = st.sidebar.radio("Menu", ["🏠 Prediksi", "📊 EDA"])
+
+if page == "🏠 Prediksi":
+    st.title("🌧️ Jateng Rain Forecast")
     
-    if model is None:
-        st.error("Model tidak ditemukan! Pastikan model telah dilatih.")
-        st.stop()
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("⚙️ Parameter")
+        kab_list = encoder_data['kabupaten_mapping'] if encoder_data else []
+        selected_kab = st.selectbox("Wilayah", kab_list)
+        selected_date = st.date_input("Tanggal", datetime.today())
         
-    st.markdown("### ⚙️ Parameter")
-    
-    kabupaten_list = encoder_data['kabupaten_mapping']
-    selected_kab = st.selectbox("Pilih Kabupaten/Kota", kabupaten_list)
-    
-    selected_date = st.date_input("Pilih Tanggal", datetime.today())
-    
-    st.info(f"Memprediksi untuk wilayah **{selected_kab}** pada tanggal **{selected_date.strftime('%d %B %Y')}**.")
-    
-    predict_btn = st.button("🌦️ Mulai Prediksi")
-
-with col2:
-    if predict_btn:
-        with st.spinner("Menganalisis data atmosfer..."):
+        if st.button("Mulai Prediksi", type="primary"):
             date_obj = pd.to_datetime(selected_date)
+            # Feature Engineering
+            try: kab_code = kab_list.index(selected_kab)
+            except: kab_code = -1
             
-            try:
-                kab_code = kabupaten_list.index(selected_kab)
-            except ValueError:
-                kab_code = -1
-            
-            bulan = date_obj.month
-            tanggal = date_obj.day
-            
-            sin_bulan = np.sin(2 * np.pi * bulan / 12)
-            cos_bulan = np.cos(2 * np.pi * bulan / 12)
-            sin_tgl = np.sin(2 * np.pi * tanggal / 31)
-            cos_tgl = np.cos(2 * np.pi * tanggal / 31)
-            
-            musim = 1 if bulan in [10, 11, 12, 1, 2, 3] else 0
-            
+            month, day = date_obj.month, date_obj.day
             hist_feat = get_historical_features(selected_kab, date_obj, df_data)
             
             input_data = pd.DataFrame([{
                 "Kabupaten_Code": kab_code,
-                "sin_bulan": sin_bulan,
-                "cos_bulan": cos_bulan,
-                "sin_tgl": sin_tgl,
-                "cos_tgl": cos_tgl,
-                "Musim": musim,
-                "rain_prev_1": hist_feat['rain_prev_1'],
-                "rain_prev_3": hist_feat['rain_prev_3'],
-                "rain_prev_7": hist_feat['rain_prev_7'],
-                "rain_prev_14": hist_feat['rain_prev_14'],
-                "rain_prev_30": hist_feat['rain_prev_30']
+                "sin_bulan": np.sin(2 * np.pi * month / 12), "cos_bulan": np.cos(2 * np.pi * month / 12),
+                "sin_tgl": np.sin(2 * np.pi * day / 31), "cos_tgl": np.cos(2 * np.pi * day / 31),
+                "Musim": 1 if month in [10, 11, 12, 1, 2, 3] else 0,
+                **hist_feat
             }])
             
-            prediction = model.predict(input_data)[0]
-            probability = model.predict_proba(input_data)[0][1]
+            # Prediction
+            pred = model.predict(input_data)[0]
+            prob = model.predict_proba(input_data)[0][1]
             
-            st.markdown("---")
-            
-            res_col1, res_col2 = st.columns(2)
-            
-            with res_col1:
-                st.markdown("### Prediksi Curah Hujan")
-                if prediction == 1:
-                    st.markdown("<h2 style='color: #4facfe;'>🌧️ Hujan Terdeteksi</h2>", unsafe_allow_html=True)
-                    st.markdown(f"Peluang Hujan: **{probability*100:.1f}%**")
-                    st.markdown("Disarankan membawa payung atau jas hujan.")
+            with col2:
+                st.markdown("---")
+                st.subheader("Hasil Prediksi Hari Ini")
+                if pred == 1:
+                    st.error(f"🌧️ HUJAN (Probabilitas: {prob:.1%})")
+                    st.caption("Sediakan payung/jas hujan.")
                 else:
-                    st.markdown("<h2 style='color: #FFD200;'>☀️ Cerah / Berawan</h2>", unsafe_allow_html=True)
-                    st.markdown(f"Peluang Hujan: **{probability*100:.1f}%**")
-                    st.markdown("Cuaca diprediksi aman untuk aktivitas luar ruangan.")
-            
-            with res_col2:
-                with st.expander("Lihat Data Input"):
-                    st.write("Data Historis (Estimasi):")
+                    st.success(f"☀️ CERAH/BERAWAN (Probabilitas Hujan: {prob:.1%})")
+                    st.caption("Aman untuk aktivitas luar.")
+                
+                with st.expander("Detail Input Features"):
                     st.json(hist_feat)
 
-            st.markdown("---")
-            st.markdown("### 📅 Ramalan 5 Hari ke Depan")
-            
-            forecast_cols = st.columns(5)
-            
-            for i in range(1, 6):
-                next_date = date_obj + timedelta(days=i)
+                # 5-Day Forecast
+                st.markdown("---")
+                st.subheader("📅 Ramalan 5 Hari ke Depan")
                 
-                n_bulan = next_date.month
-                n_tanggal = next_date.day
+                forecast_cols = st.columns(5)
                 
-                n_sin_bulan = np.sin(2 * np.pi * n_bulan / 12)
-                n_cos_bulan = np.cos(2 * np.pi * n_bulan / 12)
-                n_sin_tgl = np.sin(2 * np.pi * n_tanggal / 31)
-                n_cos_tgl = np.cos(2 * np.pi * n_tanggal / 31)
-                
-                n_musim = 1 if n_bulan in [10, 11, 12, 1, 2, 3] else 0
-                
-                n_hist_feat = get_historical_features(selected_kab, next_date, df_data)
-                
-                n_input_data = pd.DataFrame([{
-                    "Kabupaten_Code": kab_code,
-                    "sin_bulan": n_sin_bulan,
-                    "cos_bulan": n_cos_bulan,
-                    "sin_tgl": n_sin_tgl,
-                    "cos_tgl": n_cos_tgl,
-                    "Musim": n_musim,
-                    "rain_prev_1": n_hist_feat['rain_prev_1'],
-                    "rain_prev_3": n_hist_feat['rain_prev_3'],
-                    "rain_prev_7": n_hist_feat['rain_prev_7'],
-                    "rain_prev_14": n_hist_feat['rain_prev_14'],
-                    "rain_prev_30": n_hist_feat['rain_prev_30']
-                }])
-                
-                n_pred = model.predict(n_input_data)[0]
-                n_prob = model.predict_proba(n_input_data)[0][1]
-                
-                with forecast_cols[i-1]:
-                    st.markdown(f"**{next_date.strftime('%d/%m')}**")
-                    if n_pred == 1:
-                         st.markdown("🌧️ **Hujan**")
-                         st.progress(int(n_prob*100))
-                    else:
-                         st.markdown("☀️ **Cerah**")
-                         st.progress(int(n_prob*100))
+                for i in range(1, 6):
+                    next_date = date_obj + timedelta(days=i)
+                    n_month, n_day = next_date.month, next_date.day
+                    n_hist_feat = get_historical_features(selected_kab, next_date, df_data)
                     
-                    st.caption(f"{n_prob*100:.0f}%")
+                    n_input = pd.DataFrame([{
+                        "Kabupaten_Code": kab_code,
+                        "sin_bulan": np.sin(2 * np.pi * n_month / 12), "cos_bulan": np.cos(2 * np.pi * n_month / 12),
+                        "sin_tgl": np.sin(2 * np.pi * n_day / 31), "cos_tgl": np.cos(2 * np.pi * n_day / 31),
+                        "Musim": 1 if n_month in [10, 11, 12, 1, 2, 3] else 0,
+                        **n_hist_feat
+                    }])
+                    
+                    n_pred = model.predict(n_input)[0]
+                    n_prob = model.predict_proba(n_input)[0][1]
+                    
+                    with forecast_cols[i-1]:
+                        st.markdown(f"**{next_date.strftime('%d/%m')}**")
+                        if n_pred == 1:
+                             st.markdown("🌧️ **Hujan**")
+                             st.progress(int(n_prob*100))
+                        else:
+                             st.markdown("☀️ **Cerah**")
+                             st.progress(int(n_prob*100))
+                        st.caption(f"{n_prob*100:.0f}%")
 
-    else:
-        st.markdown("""
-        ### Selamat Datang
-        Aplikasi ini menggunakan Machine Learning untuk memprediksi kemungkinan hujan di wilayah Jawa Tengah.
+elif page == "📊 EDA":
+    st.title("📊 Exploratory Data Analysis")
+    
+    if df_data is not None:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Data", len(df_data))
+        c2.metric("Wilayah", df_data['Kabupaten'].nunique())
+        c3.metric("Periode", f"{df_data['Date'].min():%Y-%m} s/d {df_data['Date'].max():%Y-%m}")
         
-        **Cara Menggunakan:**
-        1. Pilih Kabupaten/Kota di panel kiri.
-        2. Tentukan Tanggal.
-        3. Klik tombol **Mulai Prediksi**.
-        """)
-        st.image("https://images.unsplash.com/photo-1601134467661-3d775b999c8b?q=80&w=1075&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Jawa Tengah Rain Forecast", use_container_width=True)
+        st.markdown("---")
+        
+        # 1. Line Plots
+        st.subheader("1. Analisis Tren (Line Plot)")
+        st.caption("Grafik garis digunakan untuk melihat pola perubahan curah hujan berdasarkan waktu.")
+        tab_lp1, tab_lp2 = st.tabs(["Pola Musiman (Bulanan)", "Tren Tahunan"])
+        
+        with tab_lp1:
+            avg_month = df_data.groupby('Bulan')['Curah_Hujan'].mean().reset_index()
+            fig_lp1 = px.line(avg_month, x='Bulan', y='Curah_Hujan', markers=True, 
+                             title='Rata-rata Curah Hujan per Bulan')
+            st.plotly_chart(fig_lp1, use_container_width=True)
+            st.info("Puncak curah hujan tertinggi biasanya terjadi di awal dan akhir tahun (Januari - Maret, Oktober - Desember).")
+
+        with tab_lp2:
+            avg_year = df_data.groupby('Tahun')['Curah_Hujan'].mean().reset_index()
+            fig_lp2 = px.line(avg_year, x='Tahun', y='Curah_Hujan', markers=True, 
+                             title='Rata-rata Curah Hujan per Tahun')
+            st.plotly_chart(fig_lp2, use_container_width=True)
+            st.info("Grafik ini menunjukkan fluktuasi rata-rata intensitas hujan dari tahun ke tahun.")
+
+        st.markdown("---")
+        
+        # 2. Box Plots
+        st.subheader("2. Distribusi Data (Box Plot)")
+        st.caption("Box plot berguna untuk melihat sebaran data dan mendeteksi outlier (nilai ekstrem).")
+        tab_bp1, tab_bp2 = st.tabs(["Sebaran per Bulan", "Sebaran per Wilayah (Top 10)"])
+        
+        with tab_bp1:
+            fig_bp1 = px.box(df_data, x='Bulan', y='Curah_Hujan', title='Distribusi Curah Hujan per Bulan')
+            st.plotly_chart(fig_bp1, use_container_width=True)
+            st.info("Box plot ini memperlihatkan variasi curah hujan di setiap bulan. Kotak yang lebih panjang menandakan variasi yang lebih besar.")
+            
+        with tab_bp2:
+            top_kab = df_data.groupby('Kabupaten')['Curah_Hujan'].mean().nlargest(10).index
+            df_top = df_data[df_data['Kabupaten'].isin(top_kab)]
+            fig_bp2 = px.box(df_top, x='Kabupaten', y='Curah_Hujan', title='Distribusi Curah Hujan di 10 Wilayah Terbasah')
+            st.plotly_chart(fig_bp2, use_container_width=True)
+            st.info("Distribusi ini fokus pada 10 wilayah dengan rata-rata hujan tertinggi.")
+
+        st.markdown("---")
+
+        # 3. Pie Charts
+        st.subheader("3. Proporsi Data (Pie Chart)")
+        st.caption("Pie chart menunjukkan persentase atau bagian dari keseluruhan.")
+        tab_pc1, tab_pc2 = st.tabs(["Proporsi Label", "Kontribusi Hujan per Bulan"])
+        
+        with tab_pc1:
+            if 'Label' in df_data.columns:
+                fig_pc1 = px.pie(df_data, names='Label', title='Persentase Hari Hujan (1) vs Tidak (0)',
+                                color_discrete_sequence=['#FFD200', '#4facfe'])
+                st.plotly_chart(fig_pc1, use_container_width=True)
+                st.info("Menunjukkan seberapa sering hujan terjadi dibandingkan hari cerah dalam dataset.")
+        
+        with tab_pc2:
+            # Filter only rainy days
+            rainy_days = df_data[df_data['Curah_Hujan'] > 0]
+            rain_counts = rainy_days['Bulan'].value_counts().reset_index()
+            rain_counts.columns = ['Bulan', 'Kejadian']
+            fig_pc2 = px.pie(rain_counts, values='Kejadian', names='Bulan', title='Proporsi Kejadian Hujan Berdasarkan Bulan')
+            st.plotly_chart(fig_pc2, use_container_width=True)
+            st.info("Bulan mana yang paling sering menyumbang kejadian hujan? Pie chart ini membagi total kejadian hujan berdasarkan bulan.")
+
+        st.markdown("---")
+
+        # 4. Scatter Plot
+        st.subheader("4. Hubungan Antar Variabel (Scatter Plot)")
+        st.caption("Scatter plot digunakan untuk melihat korelasi atau pola persebaran antara dua variabel.")
+        
+        # Sample data to avoid overplotting if dataset is huge
+        sample_df = df_data.sample(min(5000, len(df_data)), random_state=42)
+        fig_sp = px.scatter(sample_df, x='Bulan', y='Curah_Hujan', color='Curah_Hujan', 
+                           title='Scatter Plot: Bulan vs Intensitas Hujan (Sample 5000 Data)',
+                           color_continuous_scale='Bluered')
+        st.plotly_chart(fig_sp, use_container_width=True)
+        st.info("Plot ini memperlihatkan sebaran intensitas hujan di setiap bulan. Titik-titik yang lebih tinggi menunjukkan hari dengan hujan sangat lebat.")
+
+        st.markdown("---")
+
+        # 5. Correlation Matrix
+        st.subheader("5. Matriks Korelasi")
+        st.caption("Heatmap korelasi menunjukkan seberapa kuat hubungan antar fitur numerik.")
+        
+        numeric_cols = ['Curah_Hujan', 'Bulan', 'Tahun', 'Tanggal']
+        if 'Label' in df_data.columns: numeric_cols.append('Label')
+        
+        corr_matrix = df_data[numeric_cols].corr()
+        fig_corr = px.imshow(corr_matrix, text_auto=True, color_continuous_scale='RdBu_r', 
+                            title='Korelasi Antar Fitur Numerik', origin='lower')
+        st.plotly_chart(fig_corr, use_container_width=True)
+        st.info("Angka mendekati 1 berarti korelasi positif kuat, -1 korelasi negatif kuat, dan 0 tidak ada hubungan linier.")
