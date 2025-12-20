@@ -24,6 +24,14 @@ Aplikasi ini merupakan alat bantu prediksi cuaca berbasis *Machine Learning* yan
 2.  **Prediksi Cuaca Harian**: Sistem akan memprediksi apakah pada tanggal dan lokasi tersebut berpotensi turun hujan atau tidak.
 3.  **Prakiraan 5 Hari ke Depan**: Menampilkan tren prediksi cuaca untuk 5 hari setelah tanggal yang dipilih, membantu pengguna dalam perencanaan jangka pendek.
 
+## Tampilan Aplikasi
+
+### 1. Halaman Prediksi & 5-Day Forecast
+![Dashboard Prediksi](assets/dashboard_view.png)
+
+### 2. Halaman Eksplorasi Data (EDA)
+![Halaman EDA](assets/eda_view.png)
+
 ### Cara Kerja
 Model *Machine Learning* (Random Forest) memproses input tanggal dan lokasi dengan memperhitungkan pola musiman (bulan, tanggal) serta data historis curah hujan (*lag features*) di wilayah tersebut untuk menghasilkan prediksi biner: **Hujan** atau **Tidak Hujan**.
 
