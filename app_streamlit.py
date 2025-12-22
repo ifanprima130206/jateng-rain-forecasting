@@ -95,7 +95,7 @@ if page == "🏠 Prediksi":
             
             with col2:
                 st.markdown("---")
-                st.subheader("Hasil Prediksi Hari Ini")
+                st.subheader("Hasil Prediksi Pada Tanggal Yang Dipilih")
                 if pred == 1:
                     st.error(f"🌧️ HUJAN (Probabilitas: {prob:.1%})")
                     st.caption("Sediakan payung/jas hujan.")
